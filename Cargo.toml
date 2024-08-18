@@ -12,3 +12,4 @@ chrono = { version = "0.4", features = ["serde"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25.0"
 uuid = { version = "1.10", features = ["serde"] }
+bcrypt = "0.15"
