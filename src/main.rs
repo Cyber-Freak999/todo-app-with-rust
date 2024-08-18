@@ -1,4 +1,8 @@
-use actix_web::{delete, get, post, put, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{
+    delete, get, post, put,
+    web::{self, get},
+    App, HttpResponse, HttpServer, Responder,
+};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
@@ -78,6 +82,37 @@ async fn create_task(pool: web::Data<DbPool>, task: web::Json<Task>) -> impl Res
     }
 }
 
+#[get("/tasks/user/{user_id}")]
+async fn get_task(pool: web::Data<DbPool>, user_id: web::Path<Uuid>) -> impl Responder {
+    let conn = pool.get().expect("Failed to get a connection");
+    let user_id_str = user_id.to_string();
+
+    let mut stmt = conn
+        .prepare("SELECT id, completed, content, user_id FROM tasks WHERE user_id = ?1")
+        .unwrap();
+
+    let task_iter = stmt
+        .query_map([&user_id_str], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                completed: row.get(1)?,
+                content: row.get(2)?,
+                user_id: Uuid::parse_str(row.get::<_, String>(3)?.as_str()).unwrap(),
+            })
+        })
+        .unwrap();
+
+    let tasks: Vec<Task> = task_iter.filter_map(|result| result.ok()).collect();
+
+    if tasks.is_empty() {
+        return HttpResponse::NotFound().json(MyError {
+            message: format!("No tasks found for user_id: {}", user_id_str),
+        });
+    }
+
+    HttpResponse::Ok().json(tasks)
+}
+
 #[post("/register")]
 async fn create_user(pool: web::Data<DbPool>, user: web::Json<User>) -> impl Responder {
     let conn = pool.get().expect("Failed to get a connection");
@@ -136,6 +171,7 @@ async fn main() -> std::io::Result<()> {
             .service(create_task)
             .service(create_user)
             .service(authenticate_user)
+            .service(get_task)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
