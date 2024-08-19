@@ -6,7 +6,7 @@ use actix_web::{
 use bcrypt::{hash, verify, DEFAULT_COST};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{Connection, Result};
+use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -36,6 +36,11 @@ impl From<rusqlite::Error> for MyError {
             message: format!("{}", err),
         }
     }
+}
+
+#[derive(serde::Deserialize)]
+struct UpdateTaskStatus {
+    status: String,
 }
 
 type DbPool = Pool<SqliteConnectionManager>;
@@ -113,6 +118,37 @@ async fn get_task(pool: web::Data<DbPool>, user_id: web::Path<Uuid>) -> impl Res
     HttpResponse::Ok().json(tasks)
 }
 
+#[put("/tasks/user/{user_id}/{task_id}")]
+async fn update_task(
+    pool: web::Data<DbPool>,
+    user_id: web::Path<Uuid>,
+    task_id: web::Path<i32>,
+    task_completed: web::Json<UpdateTaskStatus>,
+) -> impl Responder {
+    let conn = pool.get().expect("Failed to get a connection");
+    let user_id_str = user_id.to_string();
+    let task_id_str = task_id.into_inner();
+    let task_completed_str = task_completed.into_inner().status;
+
+    let stmt = conn.execute(
+        "UPDATE tasks SET completed=?1 WHERE id=?2 AND user_id=?3",
+        params![task_completed_str, task_id_str, user_id_str],
+    );
+
+    match stmt {
+        Ok(_) => HttpResponse::Ok().json(format!(
+            "Updated task with id: {} for user_id: {}",
+            task_id_str, user_id_str
+        )),
+        Err(_) => HttpResponse::NotFound().json(MyError {
+            message: format!(
+                "Task with id {} for user_id {} not found",
+                task_id_str, user_id_str
+            ),
+        }),
+    }
+}
+
 #[post("/register")]
 async fn create_user(pool: web::Data<DbPool>, user: web::Json<User>) -> impl Responder {
     let conn = pool.get().expect("Failed to get a connection");
@@ -172,6 +208,7 @@ async fn main() -> std::io::Result<()> {
             .service(create_user)
             .service(authenticate_user)
             .service(get_task)
+            .service(update_task)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
