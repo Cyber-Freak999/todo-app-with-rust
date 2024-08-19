@@ -130,14 +130,48 @@ async fn update_task(
     let task_id_str = task_id.into_inner();
     let task_completed_str = task_completed.into_inner().status;
 
+    // let stmt = conn.execute(
+    //    "UPDATE tasks SET completed=?1 WHERE id=?2 AND user_id=?3",
+    //    params![task_completed_str, task_id_str, user_id_str],
+    //);
+    
     let stmt = conn.execute(
-        "UPDATE tasks SET completed=?1 WHERE id=?2 AND user_id=?3",
-        params![task_completed_str, task_id_str, user_id_str],
-    );
+    "UPDATE tasks SET completed=$1 WHERE id=$2 AND user_id=$3",
+    (&task_completed_str, &task_id_str, &user_id_str),
+	);
 
     match stmt {
         Ok(_) => HttpResponse::Ok().json(format!(
             "Updated task with id: {} for user_id: {}",
+            task_id_str, user_id_str
+        )),
+        Err(_) => HttpResponse::NotFound().json(MyError {
+            message: format!(
+                "Task with id {} for user_id {} not found",
+                task_id_str, user_id_str
+            ),
+        }),
+    }
+}
+
+#[delete("/tasks/user/{user_id}/{task_id}")]
+async fn delete_task(
+    pool: web::Data<DbPool>,
+    user_id: web::Path<Uuid>,
+    task_id: web::Path<i32>,
+) -> impl Responder {
+    let conn = pool.get().expect("Failed to get a connection");
+    let user_id_str = user_id.to_string();
+    let task_id_str = task_id.into_inner();
+
+    let stmt = conn.execute(
+        "DELETE FROM task WHERE id=?1 AND user_id=?2",
+        (&task_id_str, &user_id_str),
+    );
+
+    match stmt {
+        Ok(_) => HttpResponse::Ok().json(format!(
+            "Deleted task with id: {} for user_id: {}",
             task_id_str, user_id_str
         )),
         Err(_) => HttpResponse::NotFound().json(MyError {
@@ -209,6 +243,7 @@ async fn main() -> std::io::Result<()> {
             .service(authenticate_user)
             .service(get_task)
             .service(update_task)
+            .service(delete_task)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
