@@ -102,6 +102,7 @@ async fn get_task(pool: web::Data<DbPool>, user_id: web::Path<Uuid>) -> impl Res
                 id: row.get(0)?,
                 completed: row.get(1)?,
                 content: row.get(2)?,
+                // user_id: row.get(3),
                 user_id: Uuid::parse_str(row.get::<_, String>(3)?.as_str()).unwrap(),
             })
         })
@@ -116,6 +117,36 @@ async fn get_task(pool: web::Data<DbPool>, user_id: web::Path<Uuid>) -> impl Res
     }
 
     HttpResponse::Ok().json(tasks)
+}
+
+#[get("/tasks/user/{user_id}/{task_id}")]
+async fn get_task_by_id(
+    pool: web::Data<DbPool>,
+    user_id: web::Path<Uuid>,
+    task_id: web::Path<i32>,
+) -> impl Responder {
+    let conn = pool.get().expect("Failed to get a connection");
+    let user_id_str = user_id.to_string();
+    let task_id_str = task_id.to_string();
+
+    let mut stmt = conn
+        .prepare("SELECT id, completed, content, user_id WHERE user_id = ?1 AND task_id = ?2")
+        .unwrap();
+    let result = stmt.query_row([user_id_str, task_id_str], |row| {
+        Ok(Task {
+            id: row.get(0)?,
+            completed: row.get(1)?,
+            content: row.get(2)?,
+            user_id: row.get(3)?,
+        })
+    });
+
+    match result {
+        Ok(_) => HttpResponse::Ok().json(result),
+        Err(_) => HttpResponse::NotFound().json(MyError {
+            message: format!("No tasks found for such user"),
+        }),
+    }
 }
 
 #[put("/tasks/user/{user_id}/{task_id}")]
@@ -134,11 +165,11 @@ async fn update_task(
     //    "UPDATE tasks SET completed=?1 WHERE id=?2 AND user_id=?3",
     //    params![task_completed_str, task_id_str, user_id_str],
     //);
-    
+
     let stmt = conn.execute(
-    "UPDATE tasks SET completed=$1 WHERE id=$2 AND user_id=$3",
-    (&task_completed_str, &task_id_str, &user_id_str),
-	);
+        "UPDATE tasks SET completed=$1 WHERE id=$2 AND user_id=$3",
+        params![task_completed_str, task_id_str, user_id_str],
+    );
 
     match stmt {
         Ok(_) => HttpResponse::Ok().json(format!(
